@@ -1,21 +1,21 @@
 require_relative 'map_values_to_c'
 
 class MapFormulaeToC < MapValuesToC
-  
+
   attr_accessor :sheet_names
   attr_accessor :worksheet
   attr_reader :initializers
   attr_reader :counter
-  
+
   def initialize
     reset
   end
-  
+
   def reset
     @initializers = []
     @counter = 0
   end
-  
+
   FUNCTIONS = {
     :'*' => 'multiply',
     :'+' => 'add',
@@ -64,8 +64,8 @@ class MapFormulaeToC < MapValuesToC
     :'LOG2' => 'excel_log_2',
     :'MATCH2' => 'excel_match_2',
     :'MATCH3' => 'excel_match',
-    :'MAX' => 'max',
-    :'MIN' => 'min',
+    :'MAX' => 'excel_max',
+    :'MIN' => 'excel_min',
     :'MMULT' => 'mmult',
     :'MOD' => 'mod',
     :'NPV' => 'npv',
@@ -97,28 +97,28 @@ class MapFormulaeToC < MapValuesToC
     :'^' => 'power',
     :'POWER' => 'power'
   }
-  
+
   def prefix(symbol,ast)
     return map(ast) if symbol == "+"
     return "negative(#{map(ast)})"
   end
-  
+
   def brackets(*contents)
     "(#{contents.map { |a| map(a) }.join(',')})"
   end
-  
+
   def arithmetic(left,operator,right)
     "#{FUNCTIONS[operator.last]}(#{map(left)},#{map(right)})"
   end
-  
+
   def string_join(*strings)
     any_number_of_argument_function('string_join',strings)
   end
-  
+
   def comparison(left,operator,right)
     "#{FUNCTIONS[operator.last]}(#{map(left)},#{map(right)})"
   end
-  
+
   def function(function_name,*arguments)
     # Some functions are special cases
     if self.respond_to?("function_#{function_name.to_s.downcase}")
@@ -139,17 +139,17 @@ class MapFormulaeToC < MapValuesToC
       raise NotSupportedException.new("Function #{function_name} with #{arguments.size} arguments not supported")
     end
   end
-  
+
   FUNCTIONS_WITH_ANY_NUMBER_OF_ARGUMENTS = %w{SUM AND AVERAGE COUNT COUNTA MAX MIN SUMPRODUCT CONCATENATE}
-  
-  def function_pi() 
+
+  def function_pi()
     "M_PI"
   end
-  
+
   def function_choose(index,*arguments)
     "#{FUNCTIONS[:CHOOSE]}(#{map(index)}, #{map_arguments_to_array(arguments)})"
   end
-  
+
   def function_subtotal(type,*arguments)
     "#{FUNCTIONS[:SUBTOTAL]}(#{map(type)}, #{map_arguments_to_array(arguments)})"
   end
@@ -205,21 +205,27 @@ class MapFormulaeToC < MapValuesToC
 
     return result_name
   end
-  
-  def any_number_of_argument_function(function_name,arguments)    
+
+  def any_number_of_argument_function(function_name,arguments)
     "#{FUNCTIONS[function_name.to_sym]}(#{map_arguments_to_array(arguments)})"
   end
-  
+
   def map_arguments_to_array(arguments)
     # First we have to create an excel array
     array_name = "array#{@counter}"
     @counter +=1
     arguments_size = arguments.size
-    arguments = arguments.map { |a| map(a) }.join(',')
-    initializers << "ExcelValue #{array_name}[] = {#{arguments}};"
+    #arguments = arguments.map { |a| map(a) }.join(',')
+    #initializers << "ExcelValue #{array_name}[] = {#{arguments}};"
+    #"#{arguments_size}, #{array_name}"
+    initializers << "ExcelValue #{array_name}[#{arguments_size}];\n"
+    arguments.each_with_index do |argument, i|
+      initializers << "#{array_name}[#{i}] = #{argument};\n"
+    end
+
     "#{arguments_size}, #{array_name}"
   end
-  
+
   def cell(reference)
     # FIXME: What a cludge.
     if reference =~ /common\d+/
@@ -228,7 +234,7 @@ class MapFormulaeToC < MapValuesToC
       reference.to_s.downcase.gsub('$','')
     end
   end
-  
+
   def sheet_reference(sheet,reference)
     "#{sheet_names[sheet]}_#{map(reference).to_s.downcase}()"
   end
@@ -252,7 +258,7 @@ class MapFormulaeToC < MapValuesToC
         i += 1
       end
     end
-    
+
     # Then we need to assign it to an excel value
     range_name = array_name+"_ev"
     initializers << "ExcelValue #{range_name} = EXCEL_RANGE(#{array_name},#{number_of_rows},#{number_of_columns});"
